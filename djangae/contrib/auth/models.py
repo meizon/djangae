@@ -1,27 +1,26 @@
 import re
-import warnings
-from django.utils import timezone
 
+from django.contrib import auth
 from django.contrib.auth.models import (
     AbstractBaseUser,
     Permission,
     python_2_unicode_compatible,
     GroupManager,
-    UserManager,
+    BaseUserManager,
     _user_get_all_permissions,
     _user_has_perm,
     _user_has_module_perms,
-    send_mail,
     urlquote,
-    SiteProfileNotAvailable
 )
-from django.core.exceptions import ImproperlyConfigured
+from django.core.mail import send_mail
 from django.core import validators
-from django.contrib import auth
+from django.db import models
+from django.utils import timezone
+from django.utils.translation import ugettext_lazy as _
 
 from djangae.fields import ListField
-from django.db import models
-from django.utils.translation import ugettext_lazy as _
+
+
 
 @python_2_unicode_compatible
 class Group(models.Model):
@@ -122,36 +121,50 @@ class PermissionsMixin(models.Model):
 
         return _user_has_module_perms(self, app_label)
 
-class User(AbstractBaseUser, PermissionsMixin):
-    username = models.CharField(_('username'), max_length=30, unique=True,
-        help_text=_('Required. 30 characters or fewer. Letters, numbers and '
-                    '@/./+/-/_ characters'),
+
+class UserManager(BaseUserManager):
+    # TODO: do we need this?  Or does it all get taken care of when we specify USERNAME?
+    pass
+
+
+class GaeAbstractUser(AbstractBaseUser):
+    """ Absract base class for creating a User model which works with the App Engine users API. """
+
+    user_id = models.CharField(
+        _('User ID'), max_length=21, unique=True,
         validators=[
-            validators.RegexValidator(re.compile('^[\w.@+-]+$'), _('Enter a valid username.'), 'invalid')
-        ])
+            validators.RegexValidator(re.compile('^\d{21}$'), _('User Id should be 21 digits.'), 'invalid')
+        ]
+    )
     first_name = models.CharField(_('first name'), max_length=30, blank=True)
     last_name = models.CharField(_('last name'), max_length=30, blank=True)
-    email = models.EmailField(_('email address'), blank=True)
-    is_staff = models.BooleanField(_('staff status'), default=False,
-        help_text=_('Designates whether the user can log into this admin '
-                    'site.'))
-    is_active = models.BooleanField(_('active'), default=True,
-        help_text=_('Designates whether this user should be treated as '
-                    'active. Unselect this instead of deleting accounts.'))
+    email = models.EmailField(_('email address'))
+    is_staff = models.BooleanField(
+        _('staff status'), default=False,
+        help_text=_('Designates whether the user can log into this admin site.')
+    )
+    is_active = models.BooleanField(
+        _('active'), default=True,
+        help_text=_(
+            'Designates whether this user should be treated as '
+            'active. Unselect this instead of deleting accounts.'
+        )
+    )
     date_joined = models.DateTimeField(_('date joined'), default=timezone.now)
 
     objects = UserManager()
 
-    USERNAME_FIELD = 'username'
+    USERNAME_FIELD = 'user_id'
     REQUIRED_FIELDS = ['email']
 
     class Meta:
+        absract = True
         verbose_name = _('user')
         verbose_name_plural = _('users')
         app_label = "djangae"
 
     def get_absolute_url(self):
-        return "/users/%s/" % urlquote(self.username)
+        return "/users/%s/" % urlquote(self.user_id)
 
     def get_full_name(self):
         """
@@ -170,34 +183,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         """
         send_mail(subject, message, from_email, [self.email])
 
-    def get_profile(self):
-        """
-        Returns site-specific profile for this user. Raises
-        SiteProfileNotAvailable if this site does not allow profiles.
-        """
-        warnings.warn("The use of AUTH_PROFILE_MODULE to define user profiles has been deprecated.",
-            PendingDeprecationWarning)
-        if not hasattr(self, '_profile_cache'):
-            from django.conf import settings
-            if not getattr(settings, 'AUTH_PROFILE_MODULE', False):
-                raise SiteProfileNotAvailable(
-                    'You need to set AUTH_PROFILE_MODULE in your project '
-                    'settings')
-            try:
-                app_label, model_name = settings.AUTH_PROFILE_MODULE.split('.')
-            except ValueError:
-                raise SiteProfileNotAvailable(
-                    'app_label and model_name should be separated by a dot in '
-                    'the AUTH_PROFILE_MODULE setting')
-            try:
-                model = models.get_model(app_label, model_name)
-                if model is None:
-                    raise SiteProfileNotAvailable(
-                        'Unable to load the profile model, check '
-                        'AUTH_PROFILE_MODULE in your project settings')
-                self._profile_cache = model._default_manager.using(
-                                   self._state.db).get(user__id__exact=self.id)
-                self._profile_cache.user = self
-            except (ImportError, ImproperlyConfigured):
-                raise SiteProfileNotAvailable
-        return self._profile_cache
+
+class User(GaeAbstractUser, PermissionsMixin):
+    pass
