@@ -77,6 +77,35 @@ class MultiTableChildTwo(MultiTableParent):
     child_two_field = models.CharField(max_length=32)
 
 
+class AncestorModel(models.Model):
+    name = models.CharField(max_length=32)
+
+class DescendentModel(models.Model):
+    parent = models.ForeignKey(AncestorModel, null=True, blank=True)
+
+    class Djangae:
+        ancestor_field = "parent"
+
+class AncestorTests(TestCase):
+    def test_basic_usage(self):
+        parent = AncestorModel.objects.create(name="parent1")
+        child1 = DescendentModel.objects.create(parent=parent)
+        non_child = DescendentModel.objects.create(id=1) #Creates a child with no parent
+
+        self.assertEqual(1, DescendentModel.objects.filter(parent=parent).count())
+        self.assertEqual(child1, DescendentModel.objects.get(parent=parent))
+
+        self.assertEqual(non_child, DescendentModel.objects.get(pk=1))
+
+        with self.assertRaises(DescendentModel.DoesNotExist):
+            DescendentModel.objects.get(pk=child1.pk) #This will throw, because no parent was specified
+
+        DescendentModel.objects.get(parent=parent, pk=child1.pk) #This is fine, you specified the parent
+
+        #Not an ancestor query, will just query on parent_id
+        self.assertEqual(1, DescendentModel.objects.filter(parent=None).count())
+
+
 class BackendTests(TestCase):
     def test_entity_matches_query(self):
         entity = datastore.Entity("test_model")

@@ -291,3 +291,6 @@ def entity_matches_query(entity, query):
             return True
 
     return False
+
+def get_ancestor_field(model):
+    return getattr(getattr(model, "Djangae", None), "ancestor_field", None)
