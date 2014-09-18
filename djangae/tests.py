@@ -105,6 +105,16 @@ class AncestorTests(TestCase):
         #Not an ancestor query, will just query on parent_id
         self.assertEqual(1, DescendentModel.objects.filter(parent=None).count())
 
+    def test_insert_creates_ancestor_key(self):
+        parent = AncestorModel.objects.create(name="parent1")
+
+
+        parent_key = datastore.Key.from_path(AncestorModel._meta.db_table, parent.pk)
+        child_key = datastore.Key.from_path(DescendentModel._meta.db_table, 1, parent=parent_key)
+
+        self.assertIsNone(datastore.Get([child_key])[0])
+        DescendentModel.objects.create(parent=parent, pk=1)
+        self.assertIsNotNone(datastore.Get([child_key])[0])
 
 class BackendTests(TestCase):
     def test_entity_matches_query(self):

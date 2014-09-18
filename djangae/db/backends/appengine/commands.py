@@ -27,7 +27,8 @@ from djangae.db.utils import (
     MockInstance,
     get_top_concrete_parent,
     get_concrete_parents,
-    has_concrete_parents
+    has_concrete_parents,
+    get_ancestor_field
 )
 from djangae.indexing import special_indexes_for_column, REQUIRES_SPECIAL_INDEXES, add_special_index
 from djangae.utils import on_production, in_testing
@@ -342,6 +343,7 @@ class SelectCommand(object):
         self.is_count = query.aggregates
         self.extra_select = query.extra_select
         self._set_db_table()
+        self.ancestor = None
 
         if not query.default_ordering:
             self.ordering = query.order_by
@@ -783,12 +785,26 @@ class InsertCommand(object):
         self.included_keys = []
         self.model = model
 
+        ancestor_field = get_ancestor_field(self.model)
+
         for obj in objs:
             if self.has_pk:
                 #We must convert the PK value here, even though this normally happens in django_instance_to_entity otherwise
                 #custom PK fields don't work properly
+
+                #This next block creates an ancestor key, if the model has an ancestor and once was specified
+                if ancestor_field and ancestor_field in [x.name for x in fields ]:
+                    django_field = model._meta.get_field(ancestor_field)
+                    ancestor_value = getattr(obj, django_field.attname, None)
+                    if ancestor_value is not None:
+                        parent = get_datastore_key(django_field.rel.to, ancestor_value)
+                    else:
+                        parent = None
+                else:
+                    parent = None
+
                 value = model._meta.pk.get_db_prep_save(model._meta.pk.pre_save(obj, True), connection)
-                self.included_keys.append(get_datastore_key(model, value) if value else None)
+                self.included_keys.append(get_datastore_key(model, value, parent=parent) if value else None)
                 if not self.model._meta.pk.blank and self.included_keys[-1] is None:
                     raise IntegrityError("You must specify a primary key value for {} instances".format(model))
             else:
